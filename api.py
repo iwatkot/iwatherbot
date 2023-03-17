@@ -3,14 +3,13 @@ import swagger_client
 from swagger_client.rest import ApiException
 
 from decouple import config
-from pprint import pprint
 
 from logger import Logger
 
 logger = Logger(__name__)
 
 
-class Caller:
+class Instance:
     def __init__(self, telegram_id):
         self.telegram_id = telegram_id
 
@@ -18,21 +17,20 @@ class Caller:
         configuration.api_key["key"] = config("API_KEY")
 
         self.instance = swagger_client.APIsApi(swagger_client.ApiClient(configuration))
-        logger.debug(f"Created instance for user with telegrad ID {self.telegram_id}")
+        logger.debug(f"Created instance for user with telegram ID {self.telegram_id}.")
 
     def search(self, query):
         search_results = None
         try:
             search_results = self.instance.search_autocomplete_weather(query)
             logger.debug(
-                f"Find {len(search_results)} results for {query} for user with telegrad ID {self.telegram_id}"
+                f"Find {len(search_results)} results for search query: [{query}] "
+                f"for user with telegrad ID {self.telegram_id}."
             )
         except ApiException as error:
             logger.error(
-                f"There was an error while using the search for user with telegrad ID "
-                f"{self.telegram_id}. Query: {query}. Error: {error}"
+                f"There was an error while using the search for user with telegram ID "
+                f"{self.telegram_id}. Query: {query}. Error: {error}."
             )
 
-
-caller = Caller(999)
-caller.search("Velikiy")
+        return search_results

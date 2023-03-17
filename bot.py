@@ -11,7 +11,7 @@ from decouple import config
 
 from logger import Logger
 from database import Session
-from api import Caller
+from api import Instance
 
 logger = Logger(__name__)
 
@@ -22,8 +22,16 @@ dp = Dispatcher(bot=bot, storage=storage)
 
 
 class Messages(Enum):
-    START = "Hello, I'm a bot. I can help you to check the weather."
+    # Messages for commands.
+    START = "Hello, this bot can help you to get weather forecasts."
+
+    # Messages for menu changes.
     MENU_CHANGED = "You switched to the `{menu}`."
+
+    # Messages for...
+    SEARCH_LOCATION = "Please, send the name of the location to search."
+    SEARCH_RESULTS = "Please, choose the location from the list below."
+    NO_RESULTS = "No results found for your query."
 
     def escaped(self):
         return escape(self.value)
@@ -34,16 +42,16 @@ class Messages(Enum):
 
 class Buttons(Enum):
     MAIN_MENU = "Main menu"
-    FORECASTS = "Forecasts"
-    MY_LOCATION = "My location"
+    MAIN_FORECASTS = "Forecasts"
+    MAIN_LOCATION = "Location"
 
     CURRENT_WEATHER = "Current weather"
 
     SAVED_LOCATION = "Saved location"
     CHANGE_LOCATION = "Change location"
 
-    MAIN = [CURRENT_WEATHER, FORECASTS, MY_LOCATION]
-    OPTIONS = [CURRENT_WEATHER, MAIN_MENU]
+    MENU = [CURRENT_WEATHER, MAIN_FORECASTS, MAIN_LOCATION]
+    FORECASTS = [CURRENT_WEATHER, MAIN_MENU]
     LOCATION = [SAVED_LOCATION, CHANGE_LOCATION, MAIN_MENU]
 
     def menu(self):
@@ -55,11 +63,47 @@ class Buttons(Enum):
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
-    telegram_id, user_name = get_user_data(message)
+    telegram_id, user_name = await get_user_data(message)
     await bot.send_message(
         telegram_id,
         Messages.START.escaped(),
-        reply_markup=generate_reply_keyboard(Buttons.MAIN.menu()),
+        reply_markup=await reply_keyboard(Buttons.MAIN.menu()),
+        parse_mode="MarkdownV2",
+    )
+
+
+# Functions for menu sections.
+
+
+@dp.message_handler(Text(equals=Buttons.MAIN_MENU.value))
+async def main_menu(message: types.Message):
+    telegram_id, user_name = await get_user_data(message)
+    await bot.send_message(
+        telegram_id,
+        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
+        reply_markup=await reply_keyboard(Buttons.MENU.menu()),
+        parse_mode="MarkdownV2",
+    )
+
+
+@dp.message_handler(Text(equals=Buttons.MAIN_FORECASTS.value))
+async def forecasts(message: types.Message):
+    telegram_id, user_name = await get_user_data(message)
+    await bot.send_message(
+        telegram_id,
+        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_FORECASTS.value),
+        reply_markup=await reply_keyboard(Buttons.FORECASTS.menu()),
+        parse_mode="MarkdownV2",
+    )
+
+
+@dp.message_handler(Text(equals=Buttons.MAIN_LOCATION.value))
+async def location(message: types.Message):
+    telegram_id, user_name = await get_user_data(message)
+    await bot.send_message(
+        telegram_id,
+        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_LOCATION.value),
+        reply_markup=await reply_keyboard(Buttons.LOCATION.menu()),
         parse_mode="MarkdownV2",
     )
 
@@ -67,50 +111,83 @@ async def start_handler(message: types.Message):
 # Functions for buttons.
 
 
-@dp.message_handler(Text(equals=Buttons.MAIN_MENU.value))
-async def main_menu(message: types.Message):
-    telegram_id, user_name = get_user_data(message)
-    await bot.send_message(
-        telegram_id,
-        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
-        reply_markup=generate_reply_keyboard(Buttons.MAIN.menu()),
-        parse_mode="MarkdownV2",
+@dp.message_handler(Text(equals=Buttons.CHANGE_LOCATION.value))
+async def change_location(message: types.Message):
+    telegram_id, user_name = await get_user_data(message)
+
+    message = await bot.send_message(
+        telegram_id, Messages.SEARCH_LOCATION.escaped(), parse_mode="MarkdownV2"
+    )
+    dp.register_message_handler(location_search)
+
+    logger.debug(
+        f"Registered message handler (location_search) for user with telegram ID [{telegram_id}]."
     )
 
 
-@dp.message_handler(Text(equals=Buttons.FORECASTS.value))
-async def forecasts(message: types.Message):
-    telegram_id, user_name = get_user_data(message)
+async def location_search(message: types.Message):
+    telegram_id, user_name = await get_user_data(message)
+    query = message.text
+
+    instance = Instance(telegram_id)
+    search_results = instance.search(query)
+
+    if not search_results:
+        await bot.send_message(
+            telegram_id, Messages.NO_RESULTS.escaped(), parse_mode="MarkdownV2"
+        )
+        return
+
+    inline_buttons = {
+        result["name"]: f"{result['name']}, {result['country']}"
+        for result in search_results
+    }
+
     await bot.send_message(
         telegram_id,
-        Messages.MENU_CHANGED.format(menu=Buttons.FORECASTS.value),
-        reply_markup=generate_reply_keyboard(Buttons.OPTIONS.menu()),
+        Messages.SEARCH_RESULTS.escaped(),
+        reply_markup=await inline_keyboard(inline_buttons),
         parse_mode="MarkdownV2",
     )
 
+    logger.debug(
+        f"Sent to user with telegram ID [{telegram_id}] search results with length {len(inline_buttons)}."
+    )
 
-@dp.message_handler(Text(equals=Buttons.MY_LOCATION.value))
-async def location(message: types.Message):
-    telegram_id, user_name = get_user_data(message)
-    await bot.send_message(
-        telegram_id,
-        Messages.MENU_CHANGED.format(menu=Buttons.MY_LOCATION.value),
-        reply_markup=generate_reply_keyboard(Buttons.LOCATION.menu()),
-        parse_mode="MarkdownV2",
+    dp.message_handlers.unregister(location_search)
+
+    logger.debug(
+        f"Cleared message handler (location_search) for user with telegram ID [{telegram_id}]."
     )
 
 
 # Keyboard generators.
 
 
-def generate_reply_keyboard(reply_buttons: list):
+async def reply_keyboard(reply_buttons: list):
     reply_keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     for button in reply_buttons:
         reply_keyboard.add(KeyboardButton(button))
+
+    logger.debug(f"Generated reply keyboard with length {len(reply_buttons)}.")
+
     return reply_keyboard
 
 
-def get_user_data(data: dict):
+async def inline_keyboard(inline_buttons: dict):
+    inline_keyboard = InlineKeyboardMarkup(row_width=2)
+    for callback, text in inline_buttons.items():
+        inline_keyboard.add(InlineKeyboardButton(text, callback_data=callback))
+
+    logger.debug(f"Generated inline keyboard with length {len(inline_buttons)}.")
+
+    return inline_keyboard
+
+
+# Utility functons.
+
+
+async def get_user_data(data: dict):
     """Extracting data from message or callback and logging it."""
     telegram_id = data.from_user.id
     user_name = data.from_user.username
@@ -128,4 +205,5 @@ def get_user_data(data: dict):
 
 
 if __name__ == "__main__":
+    logger.info("Bot starting.")
     executor.start_polling(dp)
