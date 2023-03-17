@@ -12,11 +12,11 @@ class User(Base):
     __tablename__ = "users"
 
     telegram_id = Column(BigInteger, primary_key=True, nullable=False)
-    telegram_username = Column(Text)
+    username = Column(Text)
     location = Column(Text)
 
 
-class Session:
+class Database:
     def __init__(self, telegram_id):
         self.telegram_id = telegram_id
 
@@ -56,6 +56,7 @@ class Session:
             self.session.query(User)
             .filter(User.telegram_id == self.telegram_id)
             .count()
+            > 0
         )
 
         logger.debug(
@@ -63,3 +64,32 @@ class Session:
         )
 
         return exists
+
+    def update_location(self, username, location):
+        if not self.exists_in_database():
+            user = User(
+                telegram_id=self.telegram_id, username=username, location=location
+            )
+
+            self.session.add(user)
+            self.session.commit()
+            logger.info(
+                f"User with telegram ID [{self.telegram_id}] added to the database."
+            )
+        else:
+            user = (
+                self.session.query(User)
+                .filter(User.telegram_id == self.telegram_id)
+                .first()
+            )
+            logger.debug(
+                f"Updating location from [{user.location}] to [{location}] for "
+                f"user with telegram ID [{self.telegram_id}]."
+            )
+
+            user.location = location
+            self.session.commit()
+
+            logger.debug(
+                f"Location updated for user with telegram ID [{self.telegram_id}]."
+            )

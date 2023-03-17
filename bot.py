@@ -5,12 +5,12 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher.filters import Text
+from aiogram.dispatcher.filters import Text, Regexp
 from decouple import config
 
 
 from logger import Logger
-from database import Session
+from database import Database, User
 from api import Instance
 
 logger = Logger(__name__)
@@ -63,7 +63,7 @@ class Buttons(Enum):
 
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
     await bot.send_message(
         telegram_id,
         Messages.START.escaped(),
@@ -77,7 +77,7 @@ async def start_handler(message: types.Message):
 
 @dp.message_handler(Text(equals=Buttons.MAIN_MENU.value))
 async def main_menu(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
     await bot.send_message(
         telegram_id,
         Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
@@ -88,7 +88,7 @@ async def main_menu(message: types.Message):
 
 @dp.message_handler(Text(equals=Buttons.MAIN_FORECASTS.value))
 async def forecasts(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
     await bot.send_message(
         telegram_id,
         Messages.MENU_CHANGED.format(menu=Buttons.MAIN_FORECASTS.value),
@@ -99,7 +99,7 @@ async def forecasts(message: types.Message):
 
 @dp.message_handler(Text(equals=Buttons.MAIN_LOCATION.value))
 async def location(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
     await bot.send_message(
         telegram_id,
         Messages.MENU_CHANGED.format(menu=Buttons.MAIN_LOCATION.value),
@@ -113,7 +113,7 @@ async def location(message: types.Message):
 
 @dp.message_handler(Text(equals=Buttons.CHANGE_LOCATION.value))
 async def change_location(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
 
     message = await bot.send_message(
         telegram_id, Messages.SEARCH_LOCATION.escaped(), parse_mode="MarkdownV2"
@@ -126,7 +126,7 @@ async def change_location(message: types.Message):
 
 
 async def location_search(message: types.Message):
-    telegram_id, user_name = await get_user_data(message)
+    telegram_id, username = await get_user_data(message)
     query = message.text
 
     instance = Instance(telegram_id)
@@ -139,7 +139,7 @@ async def location_search(message: types.Message):
         return
 
     inline_buttons = {
-        result["name"]: f"{result['name']}, {result['country']}"
+        f"setlocation_{result['name']}": f"{result['name']}, {result['country']}"
         for result in search_results
     }
 
@@ -161,6 +161,18 @@ async def location_search(message: types.Message):
     )
 
 
+# Functions for callback data catching.
+
+
+@dp.callback_query_handler(text_contains="setlocation_")
+async def setlocation_callback(callback_query: types.CallbackQuery):
+    telegram_id, username = await get_user_data(callback_query)
+    location = callback_query.data.split("setlocation_")[1]
+
+    db = Database(telegram_id)
+    db.update_location(username, location)
+
+
 # Keyboard generators.
 
 
@@ -176,8 +188,10 @@ async def reply_keyboard(reply_buttons: list):
 
 async def inline_keyboard(inline_buttons: dict):
     inline_keyboard = InlineKeyboardMarkup(row_width=2)
-    for callback, text in inline_buttons.items():
-        inline_keyboard.add(InlineKeyboardButton(text, callback_data=callback))
+    for callback_data, text in inline_buttons.items():
+        inline_keyboard.add(
+            InlineKeyboardButton(callback_data=callback_data, text=text)
+        )
 
     logger.debug(f"Generated inline keyboard with length {len(inline_buttons)}.")
 
@@ -190,18 +204,18 @@ async def inline_keyboard(inline_buttons: dict):
 async def get_user_data(data: dict):
     """Extracting data from message or callback and logging it."""
     telegram_id = data.from_user.id
-    user_name = data.from_user.username
+    username = data.from_user.username
 
     try:
         logger.debug(
-            f"Message from {user_name} with telegram ID {telegram_id}: {data.text}."
+            f"Message from {username} with telegram ID {telegram_id}: {data.text}."
         )
     except AttributeError:
         logger.debug(
-            f"Callback from {user_name} with telegram ID {telegram_id}: {data.data}."
+            f"Callback from {username} with telegram ID {telegram_id}: {data.data}."
         )
 
-    return telegram_id, user_name
+    return telegram_id, username
 
 
 if __name__ == "__main__":
