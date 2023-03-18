@@ -1,0 +1,10 @@
+__pycache__/
+.git/
+.venv/
+.vscode/
+logs/
+tmp/
+.flake8
+.gitignore
+LICENSE.md
+README.md

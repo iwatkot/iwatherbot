@@ -385,12 +385,8 @@ def init_checks():
 
     logger.debug(f"Readed absolute path as [{g.ABSOLUTE_PATH}].")
 
-    os.makedirs(g.LOG_DIR, exist_ok=True)
-    os.makedirs(g.TMP_DIR, exist_ok=True)
-
-    logger.debug(
-        f"Created log directory as [{g.LOG_DIR}]. Created tmp directory as [{g.TMP_DIR}]."
-    )
+    logger.debug(f"The log directory path is set to [{g.LOG_DIR}].")
+    logger.debug(f"The tmp directory path is set to [{g.TMP_DIR}].")
 
     logger.debug(f"The log file path is set to [{g.LOG_FILE}].")
 

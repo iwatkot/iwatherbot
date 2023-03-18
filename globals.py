@@ -31,3 +31,6 @@ with open(
 
 LOG_FORMATTER = "%(name)s | %(asctime)s | %(levelname)s | %(message)s"
 LOG_FILE = os.path.join(LOG_DIR, f"{datetime.now().strftime('%Y-%m-%d')}_log.txt")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(TMP_DIR, exist_ok=True)
