@@ -56,6 +56,12 @@ class Messages(Enum):
         "Something went wrong while getting weather data. Please, try again later."
     )
 
+    # Messages for admin.
+    SHOW_USERS = (
+        "Here's the list of all usernames in the database:\n\n{usernames}.\n\n"
+        "Total number of users: {total}."
+    )
+
     def escaped(self):
         return escape(self.value)
 
@@ -65,6 +71,8 @@ class Messages(Enum):
 
 class Buttons(Enum):
     MAIN_MENU = "Main menu"
+    MAIN_ADMIN = "Admin"
+
     MAIN_FORECASTS = "Forecasts"
     MAIN_LOCATION = "Location"
 
@@ -73,7 +81,13 @@ class Buttons(Enum):
     SAVED_LOCATION = "Saved location"
     CHANGE_LOCATION = "Change location"
 
-    MENU = [MAIN_FORECASTS, MAIN_LOCATION]
+    SHOW_USERS = "Show users"
+
+    MAIN = [MAIN_FORECASTS, MAIN_LOCATION]
+    ADMIN_MAIN = [MAIN_FORECASTS, MAIN_LOCATION, MAIN_ADMIN]
+
+    ADMIN = [SHOW_USERS, MAIN_MENU]
+
     FORECASTS = [CURRENT_WEATHER, MAIN_MENU]
     LOCATION = [SAVED_LOCATION, CHANGE_LOCATION, MAIN_MENU]
 
@@ -87,13 +101,28 @@ class Buttons(Enum):
 @dp.message_handler(commands=["start"])
 async def start_handler(message: types.Message):
     telegram_id, username = await get_user_data(message)
-    await bot.send_message(
-        telegram_id,
-        Messages.START.value,
-        reply_markup=await reply_keyboard(Buttons.MENU.menu()),
-        parse_mode="MarkdownV2",
-        disable_web_page_preview=True,
-    )
+
+    if telegram_id == g.ADMIN:
+
+        logger.warning(
+            f"Admin user executed /start command. ID: [{telegram_id}], username: [{username}]."
+        )
+
+        await bot.send_message(
+            telegram_id,
+            Messages.START.value,
+            reply_markup=await reply_keyboard(Buttons.ADMIN_MAIN.menu()),
+            parse_mode="MarkdownV2",
+            disable_web_page_preview=True,
+        )
+    else:
+        await bot.send_message(
+            telegram_id,
+            Messages.START.value,
+            reply_markup=await reply_keyboard(Buttons.MAIN.menu()),
+            parse_mode="MarkdownV2",
+            disable_web_page_preview=True,
+        )
 
 
 # Functions for menu sections.
@@ -102,12 +131,26 @@ async def start_handler(message: types.Message):
 @dp.message_handler(Text(equals=Buttons.MAIN_MENU.value))
 async def main_menu(message: types.Message):
     telegram_id, username = await get_user_data(message)
-    await bot.send_message(
-        telegram_id,
-        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
-        reply_markup=await reply_keyboard(Buttons.MENU.menu()),
-        parse_mode="MarkdownV2",
-    )
+
+    if telegram_id == g.ADMIN:
+
+        logger.warning(
+            f"Showing admin menu for user with telegram ID: [{telegram_id}], username: [{username}]."
+        )
+
+        await bot.send_message(
+            telegram_id,
+            Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
+            reply_markup=await reply_keyboard(Buttons.ADMIN_MAIN.menu()),
+            parse_mode="MarkdownV2",
+        )
+    else:
+        await bot.send_message(
+            telegram_id,
+            Messages.MENU_CHANGED.format(menu=Buttons.MAIN_MENU.value),
+            reply_markup=await reply_keyboard(Buttons.MAIN.menu()),
+            parse_mode="MarkdownV2",
+        )
 
 
 @dp.message_handler(Text(equals=Buttons.MAIN_FORECASTS.value))
@@ -128,6 +171,21 @@ async def location(message: types.Message):
         telegram_id,
         Messages.MENU_CHANGED.format(menu=Buttons.MAIN_LOCATION.value),
         reply_markup=await reply_keyboard(Buttons.LOCATION.menu()),
+        parse_mode="MarkdownV2",
+    )
+
+
+@dp.message_handler(Text(equals=Buttons.MAIN_ADMIN.value))
+async def admin(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+
+    if telegram_id != g.ADMIN:
+        return
+
+    await bot.send_message(
+        telegram_id,
+        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_ADMIN.value),
+        reply_markup=await reply_keyboard(Buttons.ADMIN.menu()),
         parse_mode="MarkdownV2",
     )
 
@@ -241,6 +299,30 @@ async def current_weather(message: types.Message):
         logger.debug(f"Successfully deleted image [{image}].")
     except FileNotFoundError:
         logger.error(f"There was an error while deleting image [{image}].")
+
+
+# Functions for admin buttons.
+
+
+@dp.message_handler(Text(equals=Buttons.SHOW_USERS.value))
+async def show_users(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+
+    if telegram_id != g.ADMIN:
+        return
+
+    db = Database(telegram_id)
+    usernames = db.get_all_usernames()
+    db.disconnect()
+
+    usernames_string = ", ".join(usernames)
+
+    await bot.send_message(
+        telegram_id,
+        Messages.SHOW_USERS.value.format(
+            usernames=usernames_string, total=len(usernames)
+        ),
+    )
 
 
 # Functions for registered message handlers.
@@ -383,6 +465,36 @@ async def get_user_data(data: dict):
 def init_checks():
     logger.debug("Starting initial checks.")
 
+    logger.debug(f"Loaded icons list with [{len(g.ICONS)}] icons.")
+
+    icons_day = sorted(os.listdir(os.path.join(g.ICONS_DIR, "day")))
+    icons_night = sorted(os.listdir(os.path.join(g.ICONS_DIR, "night")))
+
+    logger.debug(
+        f"Readed [{len(icons_day)}] day icons and [{len(icons_night)}] night icons."
+    )
+
+    if icons_day == icons_night == g.ICONS:
+        logger.debug("All icons compared to the list are present.")
+    else:
+        day_difference = set(g.ICONS) - set(icons_day)
+        night_difference = set(g.ICONS) - set(icons_night)
+
+        if not day_difference:
+            day_difference = "None"
+
+        if not night_difference:
+            night_difference = "None"
+
+        logger.error(
+            f"Missing icons: [{day_difference}] in day icons and [{night_difference}] in night icons. "
+            f"Will raise an error."
+        )
+
+        raise FileNotFoundError(
+            f"Missing icons: [{day_difference}] in day icons and [{night_difference}] in night icons."
+        )
+
     logger.debug(f"Readed absolute path as [{g.ABSOLUTE_PATH}].")
 
     logger.debug(f"The log directory path is set to [{g.LOG_DIR}].")
@@ -394,7 +506,13 @@ def init_checks():
     logger.debug(f"Loaded JSON file with [{len(g.CONDITIONS_TYPES)}] condition types.")
 
     logger.debug(f"Defined path to the font as [{g.ARIMO_BOLD}].")
-    logger.debug(f"File with the font exists: [{os.path.exists(g.ARIMO_BOLD)}].")
+
+    if os.path.exists(g.ARIMO_BOLD):
+        logger.debug(f"File with the font exists: [{os.path.exists(g.ARIMO_BOLD)}].")
+    else:
+        logger.error("File with font is missing. Will raise an error.")
+
+        raise FileNotFoundError("File with font is missing.")
 
     test = Database(0)
 

@@ -139,3 +139,8 @@ class Database:
                 .location
             )
             return location
+
+    def get_all_usernames(self):
+        query = self.session.query(User.username).all()
+        usernames = [f"@{username[0]}" for username in query]
+        return usernames
