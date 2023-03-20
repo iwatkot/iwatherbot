@@ -1,5 +1,5 @@
 from decouple import config
-from sqlalchemy import create_engine, Column, Text, BigInteger
+from sqlalchemy import create_engine, Column, Text, BigInteger, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from logger import Logger
@@ -14,6 +14,8 @@ class User(Base):
     telegram_id = Column(BigInteger, primary_key=True, nullable=False)
     username = Column(Text)
     location = Column(Text)
+    notify_today = Column(Boolean, default=False)
+    notify_tomorrow = Column(Boolean, default=False)
 
 
 class Database:
@@ -143,4 +145,59 @@ class Database:
     def get_all_usernames(self):
         query = self.session.query(User.username).all()
         usernames = [f"@{username[0]}" for username in query]
+
+        logger.debug(f"Get [{len(usernames)}] usernames from database.")
+
         return usernames
+
+    def change_notification_status(self, notification: str):
+        user = (
+            self.session.query(User)
+            .filter(User.telegram_id == self.telegram_id)
+            .first()
+        )
+        if notification == "today":
+            user.notify_today = not user.notify_today
+
+            logger.debug(
+                f"User with telegram ID [{self.telegram_id}] changed {notification} "
+                f"notification status to [{user.notify_today}]."
+            )
+
+        elif notification == "tomorrow":
+            user.notify_tomorrow = not user.notify_tomorrow
+
+            logger.debug(
+                f"User with telegram ID [{self.telegram_id}] changed {notification} "
+                f"notification status to [{user.notify_tomorrow}]."
+            )
+
+        self.session.commit()
+
+    def notification_status(self, notification: str):
+        user = (
+            self.session.query(User)
+            .filter(User.telegram_id == self.telegram_id)
+            .first()
+        )
+
+        logger.debug(
+            f"Checking [{notification}] notification status for user with telegram ID [{self.telegram_id}]."
+        )
+
+        if notification == "today":
+            return user.notify_today
+        elif notification == "tomorrow":
+            return user.notify_tomorrow
+
+    def get_notified_users(self, notification: str):
+        if notification == "today":
+            users = self.session.query(User).filter(User.notify_today == True).all()
+        elif notification == "tomorrow":
+            users = self.session.query(User).filter(User.notify_tomorrow == True).all()
+
+        logger.debug(
+            f"Retrieved [{len(users)}] users with [{notification}] enabled notification status."
+        )
+
+        return users

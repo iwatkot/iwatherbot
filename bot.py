@@ -1,6 +1,8 @@
 import os
 import asyncio
 
+from aiocron import crontab
+
 from datetime import datetime, timedelta
 from enum import Enum
 from re import escape
@@ -49,6 +51,10 @@ class Messages(Enum):
     )
     LOCATION = "You have a saved location:  `{location}` ."
 
+    # Messages for notifications.
+    NOTIFY_TRUE = "You will be notified about  `{notification}`  weather."
+    NOTIFY_FALSE = "You won't be notified about  `{notification}`  weather."
+
     # Messages for errors and exceptions.
     DRAWING_ERROR = (
         "Something went wrong while drawing the image. Please, try again later."
@@ -77,6 +83,8 @@ class Buttons(Enum):
     MAIN_FORECASTS = "Forecasts"
     MAIN_LOCATION = "Location"
 
+    MAIN_NOTIFICATIONS = "Notifications"
+
     CURRENT_WEATHER = "Current weather"
     TODAY_WEATHER = "Today weather"
     TOMORROW_WEATHER = "Tomorrow weather"
@@ -84,15 +92,20 @@ class Buttons(Enum):
     SAVED_LOCATION = "Saved location"
     CHANGE_LOCATION = "Change location"
 
+    NOTIFY_TODAY = "Today subscription"
+    NOTIFY_TOMORROW = "Tomorrow subscription"
+
     SHOW_USERS = "Show users"
 
-    MAIN = [MAIN_FORECASTS, MAIN_LOCATION]
-    ADMIN_MAIN = [MAIN_FORECASTS, MAIN_LOCATION, MAIN_ADMIN]
+    MAIN = [MAIN_FORECASTS, MAIN_LOCATION, MAIN_NOTIFICATIONS]
+    ADMIN_MAIN = [MAIN_FORECASTS, MAIN_LOCATION, MAIN_NOTIFICATIONS, MAIN_ADMIN]
 
     ADMIN = [SHOW_USERS, MAIN_MENU]
 
     FORECASTS = [CURRENT_WEATHER, TODAY_WEATHER, TOMORROW_WEATHER, MAIN_MENU]
     LOCATION = [SAVED_LOCATION, CHANGE_LOCATION, MAIN_MENU]
+
+    NOTIFICATIONS = [NOTIFY_TODAY, NOTIFY_TOMORROW, MAIN_MENU]
 
     def menu(self):
         return list(self.value)
@@ -174,6 +187,17 @@ async def location(message: types.Message):
         telegram_id,
         Messages.MENU_CHANGED.format(menu=Buttons.MAIN_LOCATION.value),
         reply_markup=await reply_keyboard(Buttons.LOCATION.menu()),
+        parse_mode="MarkdownV2",
+    )
+
+
+@dp.message_handler(Text(equals=Buttons.MAIN_NOTIFICATIONS.value))
+async def notification(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+    await bot.send_message(
+        telegram_id,
+        Messages.MENU_CHANGED.format(menu=Buttons.MAIN_NOTIFICATIONS.value),
+        reply_markup=await reply_keyboard(Buttons.NOTIFICATIONS.menu()),
         parse_mode="MarkdownV2",
     )
 
@@ -305,14 +329,21 @@ async def current_weather(message: types.Message):
 @dp.message_handler(
     Text(equals=[Buttons.TODAY_WEATHER.value, Buttons.TOMORROW_WEATHER.value])
 )
-async def today_weather(message: types.Message):
-    telegram_id, username = await get_user_data(message)
+async def day_weather(
+    message: types.Message = None, telegram_id: int = None, day: str = None
+):
+    if message:
+        telegram_id, username = await get_user_data(message)
+        if message.text == Buttons.TODAY_WEATHER.value:
+            day = "today"
+        elif message.text == Buttons.TOMORROW_WEATHER.value:
+            day = "tomorrow"
 
     location = get_user_location(telegram_id)
 
-    if message.text == Buttons.TODAY_WEATHER.value:
+    if day == "today":
         date = datetime.now().strftime("%Y-%m-%d")
-    elif message.text == Buttons.TOMORROW_WEATHER.value:
+    elif day == "tomorrow":
         date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     ins = Instance(telegram_id)
@@ -371,6 +402,101 @@ async def today_weather(message: types.Message):
         logger.debug(f"Successfully deleted image [{image}].")
     except FileNotFoundError:
         logger.error(f"There was an error while deleting image [{image}].")
+
+
+@dp.message_handler(Text(equals=Buttons.NOTIFY_TODAY.value))
+async def notify_today(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+
+    notification = "today"
+
+    db = Database(telegram_id)
+    db.change_notification_status(notification)
+    status = db.notification_status(notification)
+    db.disconnect()
+
+    if status:
+        await bot.send_message(
+            telegram_id,
+            Messages.NOTIFY_TRUE.format(notification=notification),
+            parse_mode="MarkdownV2",
+        )
+    else:
+        await bot.send_message(
+            telegram_id,
+            Messages.NOTIFY_FALSE.format(notification=notification),
+            parse_mode="MarkdownV2",
+        )
+
+
+@dp.message_handler(Text(equals=Buttons.NOTIFY_TOMORROW.value))
+async def notify_tomorrow(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+
+    notification = "tomorrow"
+
+    db = Database(telegram_id)
+    db.change_notification_status(notification)
+    status = db.notification_status(notification)
+    db.disconnect()
+
+    if status:
+        await bot.send_message(
+            telegram_id,
+            Messages.NOTIFY_TRUE.format(notification=notification),
+            parse_mode="MarkdownV2",
+        )
+    else:
+        await bot.send_message(
+            telegram_id,
+            Messages.NOTIFY_FALSE.format(notification=notification),
+            parse_mode="MarkdownV2",
+        )
+
+
+# Functions for notifications.
+
+
+# @crontab("0 6 * * *")
+async def today_notifications():
+
+    logger.debug("Launching today notifications...")
+
+    notification = "today"
+
+    db = Database(g.ADMIN)
+    users = db.get_notified_users(notification)
+    db.disconnect()
+
+    logger.debug(
+        f"Retrived {len(users)} users to notify about {notification} weather. Starting notifications..."
+    )
+
+    for user in users:
+        telegram_id = user.telegram_id
+
+        await day_weather(telegram_id=telegram_id, day=notification)
+
+
+@crontab("0 17 * * *")
+async def tomorrow_notifications():
+
+    logger.debug("Launching tomorrow notifications...")
+
+    notification = "tomorrow"
+
+    db = Database(g.ADMIN)
+    users = db.get_notified_users(notification)
+    db.disconnect()
+
+    logger.debug(
+        f"Retrived {len(users)} users to notify about {notification} weather. Starting notifications..."
+    )
+
+    for user in users:
+        telegram_id = user.telegram_id
+
+        await day_weather(telegram_id=telegram_id, day=notification)
 
 
 # Functions for admin buttons.
