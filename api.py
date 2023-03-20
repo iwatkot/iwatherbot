@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import swagger_client
 
 from swagger_client.rest import ApiException
@@ -32,7 +34,7 @@ class Instance:
         except ApiException as error:
             logger.error(
                 f"There was an error while using the search for user with telegram ID "
-                f"{self.telegram_id}. Query: {query}. Error: {error}."
+                f"[{self.telegram_id}]. Query: [{query}]. Error: [{error}]."
             )
 
         return search_results
@@ -41,11 +43,29 @@ class Instance:
         try:
             current_weather = self.instance.realtime_weather(location)
             logger.debug(
-                f"Got current weather for for location: [{location}] for user with telegram ID {self.telegram_id}."
+                f"Got current weather for for location: [{location}] for user with telegram ID [{self.telegram_id}]."
             )
             return current_weather
         except ApiException as error:
             logger.error(
                 f"There was an error while using the current weather API for user with "
-                f"telegram ID {self.telegram_id}. Location: {location}. Error: {error}."
+                f"telegram ID [{self.telegram_id}]. Location: [{location}]. Error: [{error}]."
+            )
+
+    def get_forecast(self, location: str, dt: str, days: int):
+        try:
+            tomorrow_weather = self.instance.forecast_weather(
+                location, days=days, dt=dt
+            )
+
+            logger.debug(
+                f"Got [{days}] days weather on date [{dt}] for location: [{location}] "
+                f"for user with telegram ID [{self.telegram_id}]."
+            )
+
+            return tomorrow_weather
+        except ApiException as error:
+            logger.error(
+                f"There was an error while using the forecast weather API for user with "
+                f"telegram ID [{self.telegram_id}]. Location: [{location}]. Error: [{error}]."
             )

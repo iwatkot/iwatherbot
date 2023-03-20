@@ -1,6 +1,7 @@
 import os
 import asyncio
 
+from datetime import datetime, timedelta
 from enum import Enum
 from re import escape
 
@@ -77,6 +78,8 @@ class Buttons(Enum):
     MAIN_LOCATION = "Location"
 
     CURRENT_WEATHER = "Current weather"
+    TODAY_WEATHER = "Today weather"
+    TOMORROW_WEATHER = "Tomorrow weather"
 
     SAVED_LOCATION = "Saved location"
     CHANGE_LOCATION = "Change location"
@@ -88,7 +91,7 @@ class Buttons(Enum):
 
     ADMIN = [SHOW_USERS, MAIN_MENU]
 
-    FORECASTS = [CURRENT_WEATHER, MAIN_MENU]
+    FORECASTS = [CURRENT_WEATHER, TODAY_WEATHER, TOMORROW_WEATHER, MAIN_MENU]
     LOCATION = [SAVED_LOCATION, CHANGE_LOCATION, MAIN_MENU]
 
     def menu(self):
@@ -241,9 +244,7 @@ async def saved_location(message: types.Message):
 async def current_weather(message: types.Message):
     telegram_id, username = await get_user_data(message)
 
-    db = Database(telegram_id)
-    location = db.get_user_location()
-    db.disconnect()
+    location = get_user_location(telegram_id)
 
     if not location:
         await bot.send_message(
@@ -272,8 +273,79 @@ async def current_weather(message: types.Message):
 
     weather = extract_current_weather(response.to_dict())
 
-    d = Drawer(weather)
-    image = d.draw_current_weather()
+    d = Drawer()
+    image = d.draw_current_weather(weather)
+
+    if not image:
+        await bot.send_message(
+            telegram_id, Messages.DRAWING_ERROR.escaped(), parse_mode="MarkdownV2"
+        )
+
+        logger.warning(
+            f"Sent to user with telegram ID [{telegram_id}] drawing error message."
+        )
+
+    photo = InputFile(image)
+
+    await bot.send_photo(telegram_id, photo)
+
+    logger.debug(
+        f"Sent to user with telegram ID [{telegram_id}] current weather image."
+    )
+
+    await asyncio.sleep(60)
+
+    try:
+        os.remove(image)
+        logger.debug(f"Successfully deleted image [{image}].")
+    except FileNotFoundError:
+        logger.error(f"There was an error while deleting image [{image}].")
+
+
+@dp.message_handler(
+    Text(equals=[Buttons.TODAY_WEATHER.value, Buttons.TOMORROW_WEATHER.value])
+)
+async def today_weather(message: types.Message):
+    telegram_id, username = await get_user_data(message)
+
+    location = get_user_location(telegram_id)
+
+    if message.text == Buttons.TODAY_WEATHER.value:
+        date = datetime.now().strftime("%Y-%m-%d")
+    elif message.text == Buttons.TOMORROW_WEATHER.value:
+        date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    ins = Instance(telegram_id)
+    response = (
+        ins.get_forecast(location, date, 1)
+        .to_dict()
+        .get("forecast")
+        .get("forecastday")[0]
+    )
+
+    if not response:
+        await bot.send_message(
+            telegram_id, Messages.NO_WEATHER.escaped(), parse_mode="MarkdownV2"
+        )
+
+        logger.warning(
+            f"Sent to user with telegram ID [{telegram_id}] no weather message."
+        )
+
+        return
+
+    weather = extract_forecast_weather(response.get("hour"))
+
+    metadata = extract_forecast_metadata(response)
+    metadata.update(
+        {
+            "location": location,
+            "date": date,
+        }
+    )
+
+    d = Drawer()
+    image = d.draw_forecast_weather(weather, metadata)
 
     if not image:
         await bot.send_message(
@@ -424,7 +496,24 @@ async def inline_keyboard(inline_buttons: dict):
 # Utility functons.
 
 
-def extract_current_weather(data: dict):
+def get_user_location(telegram_id: int) -> str:
+
+    logger.debug(
+        f"Trying to get user location for user with telegram ID [{telegram_id}]."
+    )
+
+    db = Database(telegram_id)
+    location = db.get_user_location()
+    db.disconnect()
+
+    logger.debug(
+        f"Retrieved location [{location}] for user with telegram ID [{telegram_id}]."
+    )
+
+    return location
+
+
+def extract_current_weather(data: dict) -> dict:
 
     logger.debug(
         f"Starting to extract current weather from data dict with length [{len(data)}]."
@@ -442,6 +531,44 @@ def extract_current_weather(data: dict):
         "wind_kph": data["current"]["wind_kph"],
         "name": data["location"]["name"],
         "localtime": data["location"]["localtime"],
+    }
+
+
+def extract_forecast_weather(datas: list) -> list:
+
+    logger.debug(
+        f"Starting to extract forecast weather from data list with length [{len(datas)}]."
+    )
+
+    new_list = []
+    for data in datas:
+        new_dict = {
+            "time": data["time"].split(" ")[1],
+            # "code": data["condition"]["code"],
+            "icon": data["condition"]["icon"],
+            "feelslike_c": data["feelslike_c"],
+            "is_day": data["is_day"],
+            # "uv": data["uv"],
+            "chance_of_rain": data["chance_of_rain"],
+            "chance_of_snow": data["chance_of_snow"],
+        }
+        new_list.append(new_dict)
+    return new_list
+
+
+def extract_forecast_metadata(data: dict) -> dict:
+    return {
+        "sunrise": datetime.strptime(
+            data.get("astro").get("sunrise"),
+            "%I:%M %p",
+        ).strftime("%H:%M"),
+        "sunset": datetime.strptime(
+            data.get("astro").get("sunset"),
+            "%I:%M %p",
+        ).strftime("%H:%M"),
+        "maxtemp_c": data.get("day").get("maxtemp_c"),
+        "mintemp_c": data.get("day").get("mintemp_c"),
+        "avg_humidity": data.get("day").get("avghumidity"),
     }
 
 
