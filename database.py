@@ -142,7 +142,13 @@ class Database:
             )
             return location
 
-    def get_all_usernames(self):
+    def get_all_usernames(self) -> list[str]:
+        """Retrieves all usernames from the database, adds @ to the beginning of
+        each username and returns them as a list.
+
+        Returns:
+            list[str]: list of usernames with @ in front of each username.
+        """
         query = self.session.query(User.username).all()
         usernames = [f"@{username[0]}" for username in query]
 
@@ -151,6 +157,12 @@ class Database:
         return usernames
 
     def change_notification_status(self, notification: str):
+        """Changes the notification status for user with telegram_id to opposite of the current status.
+        Requires notification to be either "today" or "tomorrow".
+
+        Args:
+            notification (str): notification to change status for ("today" or "tomorrow")
+        """
         user = (
             self.session.query(User)
             .filter(User.telegram_id == self.telegram_id)
@@ -174,7 +186,16 @@ class Database:
 
         self.session.commit()
 
-    def notification_status(self, notification: str):
+    def notification_status(self, notification: str) -> bool:
+        """Retrieves the status for specified notification for user in the database.
+        Returns True if notification is enabled, False otherwise.
+
+        Args:
+            notification (str): notification to retrieve status for ("today" or "tomorrow")
+
+        Returns:
+            bool: boolean value representing the status of the notification.
+        """
         user = (
             self.session.query(User)
             .filter(User.telegram_id == self.telegram_id)
@@ -190,7 +211,15 @@ class Database:
         elif notification == "tomorrow":
             return user.notify_tomorrow
 
-    def get_notified_users(self, notification: str):
+    def get_notified_users(self, notification: str) -> list[User]:
+        """Retrieves all users with specified notification enabled.
+
+        Args:
+            notification (str): notification to retrieve users for ("today" or "tomorrow")
+
+        Returns:
+            list[User]: list of User objects with specified notification enabled.
+        """
         if notification == "today":
             users = self.session.query(User).filter(User.notify_today == True).all()
         elif notification == "tomorrow":

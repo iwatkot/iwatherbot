@@ -332,12 +332,25 @@ async def current_weather(message: types.Message):
 async def day_weather(
     message: types.Message = None, telegram_id: int = None, day: str = None
 ):
+    if telegram_id:
+        logger.info(
+            f"The function [{day_weather.__name__}] was called without message "
+            f"for user with telegram ID [{telegram_id}]."
+        )
+
     if message:
+
+        logger.debug(f"The function [{day_weather.__name__}] was called with message.")
+
         telegram_id, username = await get_user_data(message)
         if message.text == Buttons.TODAY_WEATHER.value:
             day = "today"
         elif message.text == Buttons.TOMORROW_WEATHER.value:
             day = "tomorrow"
+
+    logger.debug(
+        f"The function [{day_weather.__name__}] will prepare weather for [{day}]."
+    )
 
     location = get_user_location(telegram_id)
 
@@ -457,40 +470,27 @@ async def notify_tomorrow(message: types.Message):
 # Functions for notifications.
 
 
-# @crontab("0 6 * * *")
-async def today_notifications():
+@crontab("0 6 * * *")
+@crontab("0 17 * * *")
+async def day_notifications():
+    """Send notifications about today or tomorrow weather depending on the time of day."""
 
-    logger.debug("Launching today notifications...")
+    logger.debug("Crontab triggered notifications.")
 
-    notification = "today"
+    hour = datetime.now().hour
 
-    db = Database(g.ADMIN)
-    users = db.get_notified_users(notification)
-    db.disconnect()
+    notification = "today" if hour < 12 else "tomorrow"
 
     logger.debug(
-        f"Retrived {len(users)} users to notify about {notification} weather. Starting notifications..."
+        f"Current hour is [{hour}]. Sending notifications about [{notification}] weather."
     )
 
-    for user in users:
-        telegram_id = user.telegram_id
-
-        await day_weather(telegram_id=telegram_id, day=notification)
-
-
-@crontab("0 17 * * *")
-async def tomorrow_notifications():
-
-    logger.debug("Launching tomorrow notifications...")
-
-    notification = "tomorrow"
-
     db = Database(g.ADMIN)
     users = db.get_notified_users(notification)
     db.disconnect()
 
     logger.debug(
-        f"Retrived {len(users)} users to notify about {notification} weather. Starting notifications..."
+        f"Retrived [{len(users)}] users to notify about [{notification}] weather. Starting notifications..."
     )
 
     for user in users:
