@@ -1,4 +1,3 @@
-# In development
 
 ## How and why
 This Telegram bot is built on `aiogram`, `asyncio` and `aicron` libraries. It uses `sqlalchemy` and `psycopg2` to operate with PostgreSQL database, which stores all the data for users. The bot uses [WeatherAPI](https://www.weatherapi.com/) to get weather data and `PIL` to create images with weather forecasts.<br>
